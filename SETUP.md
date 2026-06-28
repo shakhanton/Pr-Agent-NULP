@@ -1,158 +1,183 @@
-# Інструкція з налаштування PR Agent для NUWM
-
-## ✨ Особливість
-
-Бот підтримує **обидва формати** змінних середовища для максимальної сумісності:
-- ✅ **З префіксами**: `GIT_APP_ID`, `GOOGLE_SPREADSHEET_URL`, `OPENAI_API_KEY`
-- ✅ **Без префіксів**: `APP_ID`, `SPREADSHEET_URL`, `API_KEY`
-
-**Ви можете використовувати будь-який варіант!** Старі workflow файли продовжать працювати без змін.
+# Покрокова інструкція запуску бота
 
 ---
 
-## Налаштування для репозиторіів студентів
+## Крок 1 — Gemini API Key (5 хв)
 
-### 1. Створіть workflow файл
+1. Відкрий [aistudio.google.com](https://aistudio.google.com) з університетської пошти
+2. Натисни **Get API key → Create API key**
+3. Збережи ключ — він виглядає як `AIzaSy...`
 
-У репозиторії студента створіть файл `.github/workflows/review.yml`.
+---
 
-**Варіант А: З префіксами (рекомендовано для нових проектів)**
+## Крок 2 — Google Sheets (15 хв)
+
+Створи нову Google таблицю або використай існуючу.
+
+### Лист `roster`
+
+Додай дві колонки:
+
+| `github_username` | `identifier` |
+|---|---|
+| твій-github-логін | Твоє ПІБ (для smoke test) |
+| student-login | Іваненко Іван Іванович |
+
+### Лист `prompts`
+
+Додай дві колонки:
+
+| `lab_name` | `Prompt` |
+|---|---|
+| `lab-1` | Evaluate DynamoDB module quality, remote-state readiness, and correctness of get-all-authors/get-courses/save-course lambdas.;;Score from 0 to 10 for Lab 1 only using this rubric: 0-3 architecture and IaC quality, 0-3 lambda correctness, 0-2 IAM least privilege, 0-2 evidence/tests/docs. |
+| `lab-2` | Evaluate API Gateway + full CRUD implementation for courses and authors, request validation, and CORS correctness.;;Score from 0 to 10 for Lab 2 only using this rubric: 0-4 endpoint completeness, 0-3 integration/CORS correctness, 0-2 validation/error handling, 0-1 tests evidence. |
+| `lab-3` | Evaluate frontend hosting pipeline on S3 + CloudFront, correct origin/access config, and environment API URL wiring.;;Score from 0 to 10 for Lab 3 only using this rubric: 0-4 end-to-end deployment, 0-3 Terraform design, 0-2 security/access setup, 0-1 evidence/report. |
+| `lab-4` | Evaluate CloudWatch metrics and alarms, billing alarm, SNS notifications (email mandatory; slack optional), and demonstrable alert triggering.;;Score from 0 to 10 for Lab 4 only using this rubric: 0-4 alarm correctness+trigger proof, 0-3 notification pipeline, 0-2 runbook/operations, 0-1 cost monitoring completeness. |
+
+> `;;` — роздільник між кількома промптами в одній клітинці. Бот об'єднає їх перед відправкою в AI.
+
+Листи `lab-1`, `lab-2`, `lab-3`, `lab-4` з результатами бот створить сам при першій перевірці.
+
+---
+
+## Крок 3 — Google Service Account (10 хв)
+
+Потрібен для того, щоб бот міг читати і писати в твою таблицю.
+
+1. Відкрий [console.cloud.google.com](https://console.cloud.google.com)
+2. Створи проект або обери існуючий
+3. **APIs & Services → Enable APIs** → знайди і увімкни **Google Sheets API**
+4. **APIs & Services → Credentials → Create Credentials → Service Account**
+5. Назви акаунт (наприклад `pr-agent-bot`) → натисни **Done**
+6. Клікни на щойно створений service account → вкладка **Keys → Add Key → Create new key → JSON**
+7. Завантажиться файл — відкрий його і скопіюй **весь вміст** (це і є значення для секрету `GOOGLE_CREDENTIALS_CONTENT`)
+8. У тому ж JSON файлі знайди поле `"client_email"` — скопіюй адресу (виглядає як `pr-agent-bot@project-id.iam.gserviceaccount.com`)
+9. Відкрий свою Google таблицю → **Share** → встав цей email → встанови права **Editor** → **Send**
+
+---
+
+## Крок 4 — Секрети GitHub Organization (5 хв)
+
+Відкрий:
+```
+github.com/organizations/<назва-організації>/settings/secrets/actions
+```
+
+Натисни **New organization secret** і додай три секрети:
+
+| Назва секрету | Звідки брати |
+|---|---|
+| `GEMINI_API_KEY` | Ключ з Кроку 1 (`AIzaSy...`) |
+| `GOOGLE_CREDENTIALS_CONTENT` | Весь JSON файл з Кроку 3 |
+| `GOOGLE_SPREADSHEET_URL` | URL твоєї Google таблиці з браузера |
+
+> Секрети на рівні організації автоматично доступні у всіх репозиторіях студентів.
+
+---
+
+## Крок 5 — Шаблон GitHub Classroom (10 хв)
+
+У шаблонному репозиторії завдання:
+
+1. Створи папку `.github/workflows/`
+2. Створи файл `.github/workflows/review.yml` з таким вмістом:
 
 ```yaml
-name: PR Agent for NUWM
+name: PR Agent for NULP
 
 on:
   pull_request:
-    types: [ opened, edited, synchronize, reopened ]
+    types: [opened, edited, synchronize, reopened]
 
 jobs:
   pr_agent_job:
     runs-on: ubuntu-latest
-    name: Run pr agent on every pull request
+    name: Run PR Agent on every pull request
     steps:
-      - name: pr-agent-nuwm
-        uses: EzGrade/Pr-Agent-NUWM@main
+      - name: pr-agent-nulp
+        uses: shakhanton/Pr-Agent-NULP@main
         env:
-          GIT_APP_ID: ${{ secrets.APP_ID }}
-          GIT_PRIVATE_KEY: ${{ secrets.PRIVATE_KEY }}
-          GIT_INSTALLATION_ID: ${{ secrets.INSTALLATION_ID }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GIT_REPOSITORY: ${{ github.repository }}
-          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-          OPENAI_MODEL: ${{ secrets.OPENAI_MODEL }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           GOOGLE_CREDENTIALS_CONTENT: ${{ secrets.GOOGLE_CREDENTIALS_CONTENT }}
-          GOOGLE_SPREADSHEET_URL: ${{ secrets.SPREADSHEET_URL }}
-          GOOGLE_SHEETS_NAMING: ${{ secrets.SHEETS_NAMING }}
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GOOGLE_SPREADSHEET_URL: ${{ secrets.GOOGLE_SPREADSHEET_URL }}
+          LAB_PATH_RULES: >-
+            {
+              "lab-1": ["terraform/modules/dynamodb/", "terraform/main.tf", "terraform/context.tf"],
+              "lab-2": ["terraform/modules/lambda/", "terraform/api.tf", "terraform/apigw.tf"],
+              "lab-3": ["terraform/frontend.tf", "terraform/s3.tf", "terraform/cloudfront.tf", "react-app-frontend/"],
+              "lab-4": ["terraform/alarm.tf", "terraform/notify_slack.tf", "terraform/cloudwatch.tf"]
+            }
+          MAX_ATTEMPTS: "3"
 ```
 
-**Варіант Б: Без префіксів (підтримується для зворотної сумісності)**
-
-```yaml
-name: PR Agent for NUWM
-
-on:
-  pull_request:
-    types: [ opened, reopened ]
-
-jobs:
-  pr_agent_job:
-    runs-on: ubuntu-latest
-    name: Run pr agent on every pull request
-    steps:
-      - name: pr-agent-nuwm
-        uses: EzGrade/Pr-Agent-NUWM@main
-        env:
-          APP_ID: ${{ secrets.APP_ID }}
-          PRIVATE_KEY: ${{ secrets.PRIVATE_KEY }}
-          INSTALLATION_ID: ${{ secrets.INSTALLATION_ID }}
-          GITHUB_REPOSITORY: ${{ github.repository }}
-          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-          OPENAI_MODEL: ${{ secrets.OPENAI_MODEL }}
-          GOOGLE_CREDENTIALS_CONTENT: ${{ secrets.GOOGLE_CREDENTIALS_CONTENT }}
-          SPREADSHEET_URL: ${{ secrets.SPREADSHEET_URL }}
-          SHEETS_NAMING: ${{ secrets.SHEETS_NAMING }}
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-```
-
-### 2. Налаштуйте GitHub Secrets
-
-У **організації** (Settings → Secrets and variables → Actions) додайте наступні секрети:
-
-#### GitHub App секрети:
-- `GIT_APP_ID` - ID вашого GitHub App
-- `GIT_PRIVATE_KEY` - Приватний ключ GitHub App
-- `GIT_INSTALLATION_ID` - (опціонально) ID інсталяції
-
-#### OpenAI секрети:
-- `OPENAI_API_KEY` - API ключ OpenAI
-- `OPENAI_MODEL` - Модель OpenAI (наприклад, `gpt-4`)
-
-#### Google Sheets секрети:
-- `GOOGLE_CREDENTIALS_CONTENT` - JSON з credentials для Google Sheets API
-- `GOOGLE_SPREADSHEET_URL` - URL таблиці Google Sheets
-- `GOOGLE_SHEETS_NAMING` - JSON з назвами аркушів
-
-**Важливо:** Налаштовуйте секрети на рівні **організації**, щоб вони автоматично були доступні для всіх репозиторіїв студентів!
+> Якщо структура папок у твоєму проекті інша — відредагуй `LAB_PATH_RULES`.
 
 ---
 
-## Підтримувані варіанти назв змінних
+## Крок 6 — Smoke test (10 хв)
 
-Завдяки `AliasChoices`, **обидва** формати працюють:
+1. Прийми GitHub Classroom завдання своїм тестовим акаунтом — отримаєш особистий репозиторій
+2. Переконайся що твій тестовий логін є в листі `roster`
+3. Зроби будь-яку зміну у файлі з папки що відповідає Lab 1 (наприклад `terraform/main.tf`)
+4. Відкрий Pull Request
+5. Зачекай 1–2 хвилини
+6. Перевір що бот залишив коментар у форматі:
 
-### GitHub конфігурація:
-| З префіксом | Без префікса | Опис |
-|------------|--------------|------|
-| `GIT_APP_ID` | `APP_ID` | GitHub App ID |
-| `GIT_PRIVATE_KEY` | `PRIVATE_KEY` | Private Key |
-| `GIT_INSTALLATION_ID` | `INSTALLATION_ID` | Installation ID (опціонально) |
-| `GIT_REPOSITORY` | `GITHUB_REPOSITORY` | Назва репозиторію |
+```
+## Lab 1 Review — Attempt 1/3
 
-### Google Sheets конфігурація:
-| З префіксом | Без префікса | Опис |
-|------------|--------------|------|
-| `GOOGLE_CREDENTIALS_CONTENT` | `CREDENTIALS_CONTENT` | Google Sheets credentials |
-| `GOOGLE_SPREADSHEET_URL` | `SPREADSHEET_URL` | URL таблиці |
-| `GOOGLE_SHEETS_NAMING` | `SHEETS_NAMING` | Назви аркушів |
+**Score: X/10**
 
-### OpenAI конфігурація:
-| З префіксом | Без префікса | Опис |
-|------------|--------------|------|
-| `OPENAI_API_KEY` | `API_KEY` | OpenAI API ключ |
-| `OPENAI_MODEL` | `MODEL` | Назва моделі |
+**What works:**
+...
 
-### Системні змінні:
-- `GITHUB_TOKEN` - Автоматично надається GitHub Actions ✅
+**What needs improvement:**
+...
+
+**Hint:**
+...
+
+---
+*2 attempt(s) remaining.*
+```
+
+7. Перевір що у Google Sheets з'явився лист `lab-1` з рядком результату
+
+**Якщо щось пішло не так** — відкрий вкладку **Actions** у репозиторії → клікни на запуск → подивись логи.
 
 ---
 
-## Перевірка налаштувань
+## Чеклист перед семестром
 
-Після налаштування:
-
-1. Створіть Pull Request в репозиторії студента
-2. Перевірте вкладку "Actions" на GitHub
-3. Подивіться логи виконання workflow
-4. Переконайтеся, що немає помилок валідації Pydantic
+- [ ] Gemini API key отримано і додано в секрети
+- [ ] Google Sheets створено з листами `roster` і `prompts`
+- [ ] Рубрики для всіх 4 лаб заповнені у листі `prompts`
+- [ ] Service account має права Editor на таблицю
+- [ ] Три секрети додано в GitHub Organization
+- [ ] `review.yml` є в шаблонному репозиторії Classroom
+- [ ] Smoke test пройшов — коментар з'явився, результат записався в Sheets
+- [ ] Всі студенти додані в `roster` до початку семестру
 
 ---
 
 ## Troubleshooting
 
-### Помилка: `Field required [type=missing]`
-**Причина:** Не налаштовано обов'язковий secret  
-**Рішення:** Додайте відсутній secret у Settings → Secrets and variables → Actions
+**Бот не коментує PR**
+→ Перевір вкладку Actions у репозиторії студента. Найчастіша причина — відсутній секрет.
 
-### Помилка: `Installation not found`
-**Причина:** GitHub App не встановлено в організації/репозиторії  
-**Рішення:** Встановіть GitHub App або додайте правильний `INSTALLATION_ID`
+**`Student not found in roster`**
+→ GitHub логін студента у листі `roster` написаний неправильно. Логін чутливий до регістру.
 
-### Помилка: `Error parsing credentials JSON`
-**Причина:** Невалідний JSON у `GOOGLE_CREDENTIALS_CONTENT`  
-**Рішення:** Перевірте формат JSON credentials файлу
+**`No rubric found for lab-X`**
+→ У листі `prompts` відсутній рядок з `lab_name = lab-X`, або назва колонки написана неправильно.
 
----
+**`Could not detect which lab`**
+→ Студент змінив файли що не входять у жоден `LAB_PATH_RULES` префікс. Перевір структуру папок.
 
-## Підтримка
+**`This PR contains changes for multiple labs`**
+→ Студент правильно отримав помилку — він має розділити зміни на окремі PR.
 
-Якщо виникли питання або проблеми, створіть Issue в репозиторії `EzGrade/Pr-Agent-NUWM`.
+**Помилка `GOOGLE_CREDENTIALS_CONTENT`**
+→ JSON скопійовано некоректно. Спробуй через `cat credentials.json` і скопіюй вивід цілком.
