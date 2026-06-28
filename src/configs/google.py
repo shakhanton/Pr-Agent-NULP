@@ -5,29 +5,21 @@ from pydantic_settings import SettingsConfigDict
 from loguru import logger
 
 from .base import BaseApplicationConfig
-from utils.enums.sheets import SheetsNamingEnum
 
 
 class GoogleSheetsConfig(BaseApplicationConfig):
     CREDENTIALS_CONTENT: str | dict = Field(
-        ..., 
+        ...,
         description="Google credentials content",
         validation_alias=AliasChoices("GOOGLE_CREDENTIALS_CONTENT", "CREDENTIALS_CONTENT")
     )
     SPREADSHEET_URL: str = Field(
-        ..., 
+        ...,
         description="Google Spreadsheet URL",
         validation_alias=AliasChoices("GOOGLE_SPREADSHEET_URL", "SPREADSHEET_URL")
     )
-    SHEETS_NAMING: dict = Field(
-        ..., 
-        description="Google Sheets naming",
-        validation_alias=AliasChoices("GOOGLE_SHEETS_NAMING", "SHEETS_NAMING")
-    )
 
-    model_config = SettingsConfigDict(
-        env_prefix=""  # Без префіксу, бо використовуємо AliasChoices
-    )
+    model_config = SettingsConfigDict(env_prefix="")
 
     @model_validator(mode="before")
     def load_credentials(cls, values):
@@ -45,9 +37,3 @@ class GoogleSheetsConfig(BaseApplicationConfig):
                     logger.error(f"Error parsing credentials JSON: {e}")
                     raise
         return values
-
-    def get_sheet_name(self, key: SheetsNamingEnum) -> str:
-        name = self.SHEETS_NAMING.get(key.value, None)
-        if name is None:
-            raise ValueError(f"Sheet name for {key} not found")
-        return name

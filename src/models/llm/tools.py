@@ -26,19 +26,12 @@ class LLMResponse(BaseModel):
     def has_tool_calls(self) -> bool:
         return bool(self.tool_calls)
 
-    @property
-    def has_tool_result(self) -> bool:
-        return self.tool_result is not None
 
 
 class BaseTool(BaseModel):
 
     @classmethod
     def prepare_schema(cls, *args, **kwargs) -> dict[str, Any]:
-        """
-        Prepare the JSON schema for the parties tool.
-        This method is used to prepare the JSON schema for the parties tool.
-        """
         schema = jsonref.replace_refs(
             cls.model_json_schema(), lazy_load=False, proxies=False
         )
@@ -58,10 +51,32 @@ class BaseTool(BaseModel):
 
 
 class ReviewCodeTool(BaseTool):
-    comment: str = Field(..., description="Comment to student code")
-    suggestions: str = Field(..., description="Suggestions for improving the code")
-    rating: float = Field(..., description="Rating for the comment. On a scale from 1 to 5")
+    """Review student DevOps lab work and provide structured feedback."""
+
+    score: int = Field(
+        ...,
+        description="Score for this lab, integer from 0 to 10",
+        ge=0,
+        le=10,
+    )
+    what_works: str = Field(
+        ...,
+        description="Bullet-point list of what the student implemented correctly",
+    )
+    what_needs_improvement: str = Field(
+        ...,
+        description="Bullet-point list of specific issues that must be fixed",
+    )
+    hint: str = Field(
+        ...,
+        description="A short hint pointing the student in the right direction without revealing the solution",
+    )
 
     @property
     def message(self) -> str:
-        return f"# Коментар\n{self.comment}\n\n# Пропозиції\n{self.suggestions}\n\n# Оцінка: {self.rating}"
+        return (
+            f"**Score: {self.score}/10**\n\n"
+            f"**What works:**\n{self.what_works}\n\n"
+            f"**What needs improvement:**\n{self.what_needs_improvement}\n\n"
+            f"**Hint:**\n{self.hint}"
+        )

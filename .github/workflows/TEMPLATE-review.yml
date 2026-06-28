@@ -1,41 +1,43 @@
-# 📋 TEMPLATE: PR Agent Workflow для репозиторіїв студентів
-# 
-# Інструкція:
-# 1. Скопіюйте цей файл до вашого репозиторію як `.github/workflows/review.yml`
-# 2. Переконайтеся, що в Settings → Secrets and variables → Actions додані всі необхідні секрети
-# 3. Коли створюєте Pull Request, бот автоматично перевірить ваш код
+# TEMPLATE: PR Agent Workflow for student repositories
 #
-# Необхідні секрети (налаштовуються адміністратором):
-# - APP_ID
-# - PRIVATE_KEY
-# - INSTALLATION_ID (опціонально)
-# - OPENAI_API_KEY
-# - OPENAI_MODEL
-# - GOOGLE_CREDENTIALS_CONTENT
-# - SPREADSHEET_URL
-# - SHEETS_NAMING
+# Setup instructions:
+# 1. Copy this file to your student repo template as `.github/workflows/review.yml`
+# 2. Add the required secrets to your GitHub Organization:
+#    Settings → Secrets and variables → Actions
+# 3. When a student opens a Pull Request, the bot reviews their lab automatically.
+#
+# Required secrets (set by instructor at org level):
+# - GEMINI_API_KEY            — Google Gemini API key (free at aistudio.google.com)
+# - GOOGLE_CREDENTIALS_CONTENT — Google service account JSON (for Sheets access)
+# - GOOGLE_SPREADSHEET_URL    — URL of the Google Sheet with roster and results
+#
+# The bot reads grading rubrics from LAB_PROMPTS_JSON.json inside the action repo.
+# Students cannot see the rubrics — they are stored only in shakhanton/Pr-Agent-NULP.
 
-name: PR Agent for NUWM
+name: PR Agent for NULP
 
 on:
   pull_request:
-    types: [ opened, edited, synchronize, reopened ]
+    types: [opened, edited, synchronize, reopened]
 
 jobs:
   pr_agent_job:
     runs-on: ubuntu-latest
-    name: Run pr agent on every pull request
+    name: Run PR Agent on every pull request
     steps:
-      - name: pr-agent-nuwm
-        uses: EzGrade/Pr-Agent-NUWM@main
+      - name: pr-agent-nulp
+        uses: shakhanton/Pr-Agent-NULP@main
         env:
-          GIT_APP_ID: ${{ secrets.GIT_APP_ID }}
-          GIT_PRIVATE_KEY: ${{ secrets.GIT_PRIVATE_KEY }}
-          GIT_INSTALLATION_ID: ${{ secrets.GIT_INSTALLATION_ID }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GIT_REPOSITORY: ${{ github.repository }}
-          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-          OPENAI_MODEL: ${{ secrets.OPENAI_MODEL }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           GOOGLE_CREDENTIALS_CONTENT: ${{ secrets.GOOGLE_CREDENTIALS_CONTENT }}
           GOOGLE_SPREADSHEET_URL: ${{ secrets.GOOGLE_SPREADSHEET_URL }}
-          GOOGLE_SHEETS_NAMING: ${{ secrets.GOOGLE_SHEETS_NAMING }}
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          LAB_PATH_RULES: >-
+            {
+              "lab-1": ["terraform/modules/dynamodb/", "terraform/main.tf", "terraform/context.tf"],
+              "lab-2": ["terraform/modules/lambda/", "terraform/api.tf", "terraform/apigw.tf"],
+              "lab-3": ["terraform/frontend.tf", "terraform/s3.tf", "terraform/cloudfront.tf", "react-app-frontend/"],
+              "lab-4": ["terraform/alarm.tf", "terraform/notify_slack.tf", "terraform/cloudwatch.tf"]
+            }
+          MAX_ATTEMPTS: "3"

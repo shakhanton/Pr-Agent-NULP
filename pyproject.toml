@@ -17,7 +17,6 @@ build-backend = "poetry.core.masonry.api"
 package-mode = false
 
 [tool.poetry.dependencies]
-opencv-python = "^4.12.0.88"
 google-auth = "^2.41.1"
 google-auth-oauthlib = "^1.2.2"
 gspread = "^6.2.1"

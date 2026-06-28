@@ -1,40 +1,71 @@
-from typing import List, Dict, Union, Optional
+from typing import Dict, Optional
 
 from loguru import logger
-from github.File import File
-from github.Repository import Repository
 
 from clients.github import GithubClient
 
-GithubEntity = Union[Repository, File]
-
 
 class GitHub:
-    """
-    This class is used to interact with the GitHub API.
-    """
-
     def __init__(
             self,
             owner: Optional[str] = None,
             repo: Optional[str] = None
     ):
         self.github_client = GithubClient()
-
         self.__owner = owner
         self.__repo = repo
-
         self.repository = self.github_client.get_repo(owner, repo)
-        self.last_pr_number = self.get_last_pr_number()
+        self.last_pr_number = self._get_last_pr_number()
 
-    def get_pr_files_content(self) -> Dict[str, str]:
-        """
-        Get content of the files in the last PR
-        :return: Dictionary with file paths as keys and file contents as values
-        """
+    def _get_last_pr_number(self) -> int:
+        pr_number = self.repository.get_pulls(sort="created", direction="desc")
+        logger.info(f"Last PR number: {pr_number[0].number}")
+        return pr_number[0].number
 
+    def get_pr_author(self) -> str:
+        pr = self.repository.get_pull(self.last_pr_number)
+        author = pr.user.login
+        logger.info(f"PR author: {author}")
+        return author
+
+    def get_changed_file_paths(self) -> list[str]:
+        pr = self.repository.get_pull(self.last_pr_number)
+        paths = [f.filename for f in pr.get_files()]
+        logger.info(f"Changed files: {paths}")
+        return paths
+
+    def detect_lab(self, lab_path_rules: dict) -> tuple[Optional[str], Optional[str]]:
+        """Returns (lab_name, error_message). One of them is always None."""
+        if not lab_path_rules:
+            return None, "LAB_PATH_RULES is not configured. Contact your instructor."
+
+        changed_paths = self.get_changed_file_paths()
+        matched_labs: set[str] = set()
+
+        for path in changed_paths:
+            for lab, prefixes in lab_path_rules.items():
+                for prefix in prefixes:
+                    if path.startswith(prefix):
+                        matched_labs.add(lab)
+                        break
+
+        if len(matched_labs) == 0:
+            return None, (
+                "Could not detect which lab this PR belongs to. "
+                "Make sure your changes are in the correct directory according to the lab path rules."
+            )
+
+        if len(matched_labs) > 1:
+            labs_str = ", ".join(sorted(matched_labs))
+            return None, (
+                f"This PR contains changes for multiple labs ({labs_str}). "
+                "Please split your changes into separate PRs, one per lab."
+            )
+
+        return matched_labs.pop(), None
+
+    def get_pr_files_content(self, path_prefixes: Optional[list[str]] = None) -> Dict[str, str]:
         def get_files_recursively(path: str, ref: str) -> Dict[str, str]:
-            logger.debug(f"Getting files recursively from path: {path}, ref: {ref}")
             files = self.repository.get_contents(path, ref=ref)
             context = dict()
             encodings = ['utf-8', 'latin-1', 'cp1252']
@@ -52,77 +83,24 @@ class GitHub:
             return context
 
         last_pr = self.repository.get_pull(self.last_pr_number)
-        logger.info(f"Last PR number: {self.last_pr_number}")
-        return get_files_recursively("", last_pr.head.ref)
+        all_files = get_files_recursively("", last_pr.head.ref)
 
-    def get_last_pr_number(self) -> int:
-        """
-        Get last PR number
-        :return:
-        """
-        logger.debug("Getting last PR number")
-        pr_number = self.repository.get_pulls(sort="created", direction="desc")
-        logger.info(f"Last PR number: {pr_number[0].number}")
-        return pr_number[0].number
+        if path_prefixes:
+            return {
+                k: v for k, v in all_files.items()
+                if any(k.startswith(p) for p in path_prefixes)
+            }
+        return all_files
 
-    def comment_pr(
-            self,
-            comment: str,
-            pull_number: Optional[int] = None
-    ) -> None:
-        """
-        Leave comment on last PR
-        :param comment: Comment to leave
-        :param pull_number: PR number to comment on
-        """
+    def comment_pr(self, comment: str, pull_number: Optional[int] = None) -> None:
         if not pull_number:
             pull_number = self.last_pr_number
-
         pr = self.repository.get_pull(pull_number)
         pr.create_issue_comment(comment)
-        logger.info(f"Comment left on PR number: {pull_number}")
+        logger.info(f"Comment left on PR #{pull_number}")
 
-    def get_student(self, lab_name: str) -> str:
-        """
-        Get the author of the last commit.
-        :return: The username or the email of the author of the last commit
-        """
-        logger.debug("Getting student username from repository name")
-        repository_name = self.repository.full_name
-        _lab_name = repository_name.split("/")[-1]
-        logger.debug(f"Repository name: {repository_name}")
-        logger.debug(f"Extracted repo suffix: {_lab_name}")
-        logger.debug(f"Lab name to remove: {lab_name}")
-        student = _lab_name.replace(f"{lab_name}-", "")
-        logger.info(f"Extracted student username: {student}")
-        return student
-
-    def get_lab_name(self, all_lab_names: List[str]) -> str:
-        """
-        Get the name of the lab.
-        :return: The name of the lab
-        """
-        logger.debug("Getting lab name")
-        repository_name = self.repository.full_name
-        lab_name = repository_name.split("/")[-1]
-        logger.debug(f"Repository full name: {repository_name}")
-        logger.debug(f"Initial lab_name from repo: {lab_name}")
-        logger.debug(f"Available lab names: {all_lab_names}")
-        
-        for _lab_name in all_lab_names:
-            if _lab_name in lab_name:
-                logger.debug(f"Found matching lab name: {_lab_name}")
-                lab_name = _lab_name
-                break
-        
-        logger.info(f"Final lab name: {lab_name}")
-        return lab_name
+    def get_last_pr_number(self) -> int:
+        return self.last_pr_number
 
     def get_last_pr_link(self) -> str:
-        """
-        Get the link to the last PR.
-        :return: The link to the last PR
-        """
-        logger.debug("Getting last PR link")
-        link = f"https://github.com/{self.__owner}/{self.__repo}/pull/{self.last_pr_number}"
-        return link
+        return f"https://github.com/{self.__owner}/{self.__repo}/pull/{self.last_pr_number}"

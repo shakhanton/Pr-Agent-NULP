@@ -1,311 +1,113 @@
 import gspread
 import pandas as pd
-
 from loguru import logger
 
-from services.student_variant.service import StudentVariant
-
 from clients.google import GoogleSheetsClient
-from models.google.entity import ReviewModel
-from utils.enums.sheets import SheetsNamingEnum
+
+ROSTER_SHEET = "roster"
+RESULTS_COLUMNS = ["GitHub Login", "Student Name", "Lab", "Best Score", "Attempts", "Last PR Link", "Last Date"]
 
 
 class GoogleSheet:
-    ALL_COLUMNS = [
-        "Номер варіанту",
-        "ПІБ",
-        "github nickname",
-        "Коментар бота",
-        "№ Спроби",
-        "Час здачі",
-        "Лінк на останній PR",
-        "Промт",
-        "Підсумок",
-        "Кнопка перевірки ще раз"
-    ]
-
     def __init__(self):
         self.__client = GoogleSheetsClient()
-        self.__config = self.__client.config
-
-    def get_teacher_prompts(self, name: str) -> list[str]:
-        """
-        Get teacher prompts for a specific lab.
-        """
-        try:
-            sheet = self.__client.get_sheet_data(
-                self.__config.get_sheet_name(
-                    SheetsNamingEnum.PROMPTS
-                )
-            )
-            matching_prompts = sheet.loc[sheet['lab_name'] == name, 'Prompt']
-            if matching_prompts.empty:
-                logger.warning(f"No prompts found for lab name: {name}")
-                return []
-            prompts = matching_prompts.values[0]
-            return prompts.split(";;")
-        except Exception as e:
-            logger.error(f"An error occurred while getting teacher prompts: {e}")
-            return []
-
-    def get_variants_sheet(self) -> pd.DataFrame:
-        """
-        Get the variants sheet from the spreadsheet.
-        """
-        return self.__client.get_sheet_data(
-            self.__config.get_sheet_name(
-                SheetsNamingEnum.VARIANTS
-            )
-        )
-
-    def get_roster_sheet(self) -> pd.DataFrame:
-        """
-        Get the roster sheet from the spreadsheet.
-        """
-        return self.__client.get_sheet_data(
-            self.__config.get_sheet_name(
-                SheetsNamingEnum.ROSTER
-            )
-        )
 
     def get_all_nicknames(self) -> list[str]:
-        """
-        Get all nicknames from the Google Sheet.
-        """
-
         try:
-            data = self.__client.get_sheet_data(
-                self.__config.get_sheet_name(
-                    SheetsNamingEnum.ROSTER
-                )
-            )
-            nicknames = data["github_username"].dropna().tolist()
-            nicknames = [nick for nick in nicknames if nick.strip()]
-            return nicknames
+            data = self.__client.get_sheet_data(ROSTER_SHEET)
+            return data["github_username"].dropna().tolist()
         except Exception as e:
-            logger.error(f"An error occurred while getting all nicknames: {e}")
+            logger.error(f"Error getting nicknames: {e}")
             return []
 
-    def get_all_lab_names(self) -> list[str]:
-        """
-        Get all lab names from the Google Sheet.
-        :return:
-        """
+    def get_student_name(self, github_login: str) -> str:
         try:
-            data = self.__client.get_sheet_data(
-                self.__config.get_sheet_name(
-                    SheetsNamingEnum.PROMPTS
-                )
-            )
-            lab_names = data["lab_name"].dropna().tolist()
-            lab_names = [name for name in lab_names if name.strip()]
-            return lab_names
+            data = self.__client.get_sheet_data(ROSTER_SHEET)
+            row = data.loc[data["github_username"] == github_login]
+            if row.empty:
+                return github_login
+            return str(row["identifier"].values[0]).strip()
         except Exception as e:
-            logger.error(f"An error occurred while getting all lab names: {e}")
-            return []
+            logger.error(f"Error getting student name: {e}")
+            return github_login
 
-    def get_all_repositories(self, sheet_name: str) -> list[str]:
-        """
-        Get all repositories from the Google Sheet.
-        """
+    def get_attempts(self, github_login: str, lab_name: str) -> int:
         try:
-            data = self.__client.get_sheet_data(sheet_name)
-            repositories = data["Лінк на останній PR"].dropna().tolist()
-            repositories = [repo for repo in repositories if repo.strip()]
-
-            result = []
-            for repo in repositories:
-                temp = repo.split("/")
-                if len(temp) >= 5:
-                    result.append((temp[3], temp[4]))
-            return result
-        except Exception as e:
-            logger.error(f"An error occurred while getting all repositories: {e}")
-            return []
-
-    def leave_response(
-            self,
-            student_variant: StudentVariant,
-            student_name: str,
-            sheet_name: str,
-            ai_response: str,
-            last_pr_link: str,
-            prompt: str,
-            summary: str,
-    ) -> bool:
-        """
-        Leave response in the Google Sheet.
-        """
-        try:
-            sheet = self.__client.spreadsheet.worksheet(sheet_name)
-        except gspread.exceptions.WorksheetNotFound:
-            logger.info(f"Sheet {sheet_name} not found, creating a new one")
-            sheet = self.__client.copy_template_to_new_sheet(sheet_name)
-
-        try:
-            records = sheet.get_all_records()
-            if not records:
-                self.__insert_new_student(student_variant, sheet_name)
-                records = sheet.get_all_records()
-
-            data = pd.DataFrame(records)
-            logger.debug(data.to_string())
-            found, row_number = self.__get_student_row(data, student_name)
-            if not found:
-                logger.warning(f"Student '{student_name}' not found in sheet '{sheet_name}', inserting...")
-                self.__insert_new_student(student_variant, sheet_name)
-                # Re-read data after insertion
-                data = pd.DataFrame(sheet.get_all_records())
-                found_after_insert, row_number = self.__get_student_row(data, student_name)
-                if not found_after_insert:
-                    logger.error(f"Failed to insert student '{student_name}' into sheet '{sheet_name}'")
-                    return False
-                logger.info(f"Successfully inserted student '{student_name}' at row {row_number}")
-            attempts = self.__get_student_attempts(data, student_name) + 1
-            date = pd.Timestamp.now().strftime("%Y-%m-%d %H:%M:%S")
-            self.__update_student_data(
-                data,
-                row_number,
-                ai_response,
-                attempts,
-                date,
-                last_pr_link,
-                prompt,
-                summary,
-            )
-            self.__client.write_dataframe_to_sheet(sheet_name, data)
-            return True
-        except Exception as e:
-            logger.error(f"An error occurred while leaving response: {e}")
-            return False
-
-    @staticmethod
-    def __get_student_row(data: pd.DataFrame, student_name: str) -> tuple[bool, int]:
-        """
-        Get the row number of a student by their real name.
-        """
-        try:
-            # Check if DataFrame is empty or doesn't have the expected column
-            if data.empty or 'ПІБ' not in data.columns:
-                logger.warning("DataFrame is empty or missing 'ПІБ' column")
-                return False, 1
-
-            students = data['ПІБ'].tolist()
-            logger.debug(f"Looking for student '{student_name}' in {len(students)} rows")
-            
-            if student_name in students:
-                row_number = students.index(student_name) + 1
-                logger.debug(f"Found student '{student_name}' at row {row_number}")
-                return True, row_number
-            else:
-                row_number = len(students) + 1
-                logger.warning(f"Student '{student_name}' not found. Would be inserted at row {row_number}")
-                return False, row_number
-        except Exception as e:
-            logger.error(f"An error occurred while getting student row: {e}")
-            return False, -1
-
-    @staticmethod
-    def __update_student_data(
-            data: pd.DataFrame,
-            row_number: int,
-            ai_response: str,
-            attempts: int,
-            date: str,
-            last_pr_link: str,
-            prompt: str,
-            summary: str,
-    ):
-        """
-        Update student data in the DataFrame.
-        """
-        idx = row_number - 1
-        data.at[idx, 'Коментар бота'] = ai_response
-        data.at[idx, '№ Спроби'] = attempts
-        data.at[idx, 'Час здачі'] = date
-        data.at[idx, 'Лінк на останній PR'] = last_pr_link
-        data.at[idx, 'Промт'] = prompt
-        data.at[idx, 'Підсумок'] = summary
-
-    def __get_student_attempts(self, data: pd.DataFrame, student_name: str) -> int:
-        """
-        Get the number of attempts of a student.
-        """
-        try:
-            found, row_number = self.__get_student_row(data, student_name)
-            if not found or data.empty or '№ Спроби' not in data.columns:
+            data = self.__client.get_sheet_data(lab_name)
+            if data.empty or "GitHub Login" not in data.columns:
                 return 0
-
-            attempts = data.loc[row_number - 1, '№ Спроби']
-
-            # Handle empty string, None, or non-numeric values
-            if pd.isna(attempts) or attempts == '' or attempts is None:
+            row = data.loc[data["GitHub Login"] == github_login]
+            if row.empty:
                 return 0
-
-            # Convert to int safely
-            if isinstance(attempts, (int, float)):
-                return int(attempts)
-
-            # Try to parse string
-            try:
-                return int(str(attempts))
-            except (ValueError, TypeError):
-                return 0
-
+            val = row["Attempts"].values[0]
+            return int(val) if val else 0
         except Exception as e:
-            logger.error(f"An error occurred while getting student attempts: {e}")
+            logger.error(f"Error getting attempts: {e}")
             return 0
 
-    def __insert_new_student(self, student_variant: StudentVariant, sheet_name: str) -> bool:
-        """
-        Insert a new student into the Google Sheet.
-        """
-        logger.info(f"Inserting new student '{student_variant.student_real_name}' into sheet '{sheet_name}'")
+    def get_best_score(self, github_login: str, lab_name: str) -> int:
         try:
-            sheet = self.__client.spreadsheet.worksheet(sheet_name)
-            records = sheet.get_all_records()
-            if not records:
-                logger.info("Sheet is empty, creating first row")
-                model = ReviewModel(
-                    variant_number=student_variant.student_variant,
-                    student_name=student_variant.student_real_name,
-                    student_github_username=student_variant.student_username,
-                    comment=None,
-                    attempt_number=0,
-                    attempt_time=None,
-                    last_pr_link=None,
-                    prompt=None,
-                    summary=None,
-                    retry_button=None
-                )
-                data = pd.DataFrame(model.to_pd_dict())
-                self.__client.write_dataframe_to_sheet(sheet_name, data)
-                logger.info(f"Successfully inserted student '{student_variant.student_real_name}' as first row")
-                return True
+            data = self.__client.get_sheet_data(lab_name)
+            if data.empty or "GitHub Login" not in data.columns:
+                return 0
+            row = data.loc[data["GitHub Login"] == github_login]
+            if row.empty:
+                return 0
+            val = row["Best Score"].values[0]
+            return int(val) if val else 0
+        except Exception as e:
+            logger.error(f"Error getting best score: {e}")
+            return 0
 
-            data = pd.DataFrame(sheet.get_all_records())
-            logger.debug(f"Current sheet has {len(data)} rows")
-            
-            model = ReviewModel(
-                variant_number=student_variant.student_variant,
-                student_name=student_variant.student_real_name,
-                student_github_username=student_variant.student_username,
-                comment=None,
-                attempt_number=0,
-                attempt_time=None,
-                last_pr_link=None,
-                prompt=None,
-                summary=None,
-                retry_button=None
-            )
-            new_student = pd.DataFrame(model.to_pd_dict())
-            data = pd.concat([data, new_student], ignore_index=True)
-            logger.debug(f"After concat, sheet has {len(data)} rows")
-            
-            self.__client.write_dataframe_to_sheet(sheet_name, data)
-            logger.info(f"Successfully appended student '{student_variant.student_real_name}' to sheet")
+    def save_result(
+            self,
+            github_login: str,
+            student_name: str,
+            lab_name: str,
+            score: int,
+            attempt_number: int,
+            pr_link: str,
+    ) -> bool:
+        try:
+            try:
+                sheet = self.__client.spreadsheet.worksheet(lab_name)
+                data = pd.DataFrame(sheet.get_all_records())
+            except gspread.exceptions.WorksheetNotFound:
+                sheet = self.__client.spreadsheet.add_worksheet(
+                    title=lab_name, rows=200, cols=len(RESULTS_COLUMNS)
+                )
+                data = pd.DataFrame(columns=RESULTS_COLUMNS)
+
+            date = pd.Timestamp.now().strftime("%Y-%m-%d %H:%M:%S")
+
+            if not data.empty and "GitHub Login" in data.columns:
+                idx_list = data.index[data["GitHub Login"] == github_login].tolist()
+            else:
+                idx_list = []
+
+            if idx_list:
+                idx = idx_list[0]
+                current_best = data.at[idx, "Best Score"]
+                data.at[idx, "Best Score"] = max(int(current_best) if current_best else 0, score)
+                data.at[idx, "Attempts"] = attempt_number
+                data.at[idx, "Last PR Link"] = pr_link
+                data.at[idx, "Last Date"] = date
+            else:
+                new_row = pd.DataFrame([{
+                    "GitHub Login": github_login,
+                    "Student Name": student_name,
+                    "Lab": lab_name,
+                    "Best Score": score,
+                    "Attempts": attempt_number,
+                    "Last PR Link": pr_link,
+                    "Last Date": date,
+                }])
+                data = pd.concat([data, new_row], ignore_index=True)
+
+            self.__client.write_dataframe_to_sheet(lab_name, data)
+            logger.info(f"Saved result for {github_login} on {lab_name}: score={score}, attempt={attempt_number}")
             return True
 
         except Exception as e:
-            logger.error(f"An error occurred while inserting new student: {e}")
+            logger.error(f"Error saving result: {e}")
             return False
