@@ -1,9 +1,6 @@
 """
 Main runner — executed by the GitHub Action on every PR event.
 """
-import json
-from pathlib import Path
-
 from loguru import logger
 
 from configs.github import GitHubConfig
@@ -12,19 +9,6 @@ from services.ai.service import AiRequest
 from services.git.service import GitHub
 from services.google.service import GoogleSheet
 from services.prompt.service import PromptGenerator
-
-RUBRICS_PATH = Path(__file__).parent.parent / "LAB_PROMPTS_JSON.json"
-
-
-def load_rubric(lab_name: str) -> str:
-    try:
-        with open(RUBRICS_PATH) as f:
-            prompts: dict = json.load(f)
-        lab_prompts = prompts.get(lab_name, [])
-        return "\n\n".join(lab_prompts)
-    except Exception as e:
-        logger.error(f"Could not load rubric for {lab_name}: {e}")
-        return ""
 
 
 def run(owner: str, repository: str) -> bool:
@@ -71,7 +55,7 @@ def run(owner: str, repository: str) -> bool:
         remaining_after = config.MAX_ATTEMPTS - attempt_number
 
         # Load rubric and files
-        rubric = load_rubric(lab_name)
+        rubric = google_client.get_rubric(lab_name)
         lab_prefixes = config.LAB_PATH_RULES.get(lab_name, [])
         files = git_client.get_pr_files_content(path_prefixes=lab_prefixes if lab_prefixes else None)
         files.pop("README.md", None)

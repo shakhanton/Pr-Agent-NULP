@@ -5,12 +5,25 @@ from loguru import logger
 from clients.google import GoogleSheetsClient
 
 ROSTER_SHEET = "roster"
+PROMPTS_SHEET = "prompts"
 RESULTS_COLUMNS = ["GitHub Login", "Student Name", "Lab", "Best Score", "Attempts", "Last PR Link", "Last Date"]
 
 
 class GoogleSheet:
     def __init__(self):
         self.__client = GoogleSheetsClient()
+
+    def get_rubric(self, lab_name: str) -> str:
+        try:
+            data = self.__client.get_sheet_data(PROMPTS_SHEET)
+            row = data.loc[data["lab_name"] == lab_name, "Prompt"]
+            if row.empty:
+                logger.warning(f"No rubric found for {lab_name} in prompts sheet")
+                return ""
+            return "\n\n".join(str(p) for p in row.values[0].split(";;") if p.strip())
+        except Exception as e:
+            logger.error(f"Error getting rubric for {lab_name}: {e}")
+            return ""
 
     def get_all_nicknames(self) -> list[str]:
         try:
