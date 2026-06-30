@@ -11,7 +11,7 @@ class GeminiConfig(BaseApplicationConfig):
         validation_alias=AliasChoices("GEMINI_API_KEY", "API_KEY")
     )
     MODEL: str = Field(
-        default="gemini-2.0-flash",
+        default="gemini-2.5-flash-lite",
         description="Gemini model name",
         validation_alias=AliasChoices("GEMINI_MODEL", "MODEL")
     )
