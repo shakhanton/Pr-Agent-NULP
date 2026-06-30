@@ -1,8 +1,22 @@
-name: 'PR Agent for NUWM'
-description: 'Summarize, review and suggest improvements for pull requests'
+name: 'PR Agent for NULP'
+description: 'Automated lab review bot for NULP DevOps course'
 branding:
   icon: 'award'
   color: 'green'
 runs:
-  using: 'docker'
-  image: 'Dockerfile'
+  using: 'composite'
+  steps:
+    - uses: actions/setup-python@v5
+      with:
+        python-version: '3.12'
+    - name: Install dependencies
+      shell: bash
+      working-directory: ${{ github.action_path }}
+      run: |
+        pip install poetry --quiet
+        poetry config virtualenvs.create false
+        poetry install --no-interaction --no-ansi
+    - name: Run PR Agent
+      shell: bash
+      working-directory: ${{ github.action_path }}/src
+      run: python runner.py
