@@ -35,9 +35,9 @@ jobs:
           GOOGLE_SPREADSHEET_URL: ${{ secrets.GOOGLE_SPREADSHEET_URL }}
           LAB_PATH_RULES: >-
             {
-              "lab-1": ["terraform/modules/dynamodb/", "terraform/main.tf", "terraform/context.tf"],
-              "lab-2": ["terraform/modules/lambda/", "terraform/api.tf", "terraform/apigw.tf"],
-              "lab-3": ["terraform/frontend.tf", "terraform/s3.tf", "terraform/cloudfront.tf", "react-app-frontend/"],
-              "lab-4": ["terraform/alarm.tf", "terraform/notify_slack.tf", "terraform/cloudwatch.tf"]
+              "lab-1": ["domain1/terraform/main.tf", "domain1/terraform/lambda.tf", "domain1/terraform/api.tf", "domain1/terraform/iam.tf", "domain1/lambdas/"],
+              "lab-2": ["domain1/terraform/frontend.tf", "domain1/terraform/cloudwatch.tf", "domain1/terraform/notifications.tf"],
+              "lab-3": ["domain2/k8s/postgres/", "domain2/k8s/backend/", "domain2/k8s/secret.yaml"],
+              "lab-4": ["domain2/k8s/frontend/", "domain2/k8s/ingress.yaml"]
             }
           MAX_ATTEMPTS: "3"
