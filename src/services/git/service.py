@@ -1,3 +1,4 @@
+import os
 from typing import Dict, Optional
 
 from loguru import logger
@@ -18,6 +19,11 @@ class GitHub:
         self.last_pr_number = self._get_last_pr_number()
 
     def _get_last_pr_number(self) -> int:
+        env_pr = os.environ.get("PR_NUMBER", "").strip()
+        if env_pr.isdigit():
+            pr_number = int(env_pr)
+            logger.info(f"PR number from env: {pr_number}")
+            return pr_number
         pr_number = self.repository.get_pulls(sort="created", direction="desc")
         logger.info(f"Last PR number: {pr_number[0].number}")
         return pr_number[0].number
